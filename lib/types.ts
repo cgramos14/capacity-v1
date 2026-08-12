@@ -64,12 +64,78 @@ export interface Decision {
   cta: string;
 }
 
+/* ---------------------------------------------------------------------------
+ * Calendar context. Contextual workload only — not a medical or clinical model.
+ * ------------------------------------------------------------------------- */
+
+export type EventCategory =
+  | "Deep Work"
+  | "Internal Meeting"
+  | "Client Meeting"
+  | "Presentation"
+  | "Interview"
+  | "Dinner"
+  | "Travel"
+  | "Personal"
+  | "Workout";
+
+export type EventIntensity = "Low" | "Moderate" | "High";
+
+export type LocationType = "Remote" | "Office" | "Offsite" | "Airport" | "Restaurant" | "Other";
+
+/** Normalized calendar event. Demo + future Google/Microsoft providers map into this. */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  startTime: string; // YYYY-MM-DDTHH:MM (local, no timezone conversion)
+  endTime: string;
+  category: EventCategory;
+  intensity: EventIntensity;
+  locationType: LocationType;
+  travelRelated: boolean;
+}
+
+export type LoadStatus = "Low" | "Moderate" | "High" | "Extreme";
+
+export interface CalendarLoad {
+  date: string;
+  score: number; // 0-100 contextual demand
+  status: LoadStatus;
+  meetingCount: number;
+  scheduledMinutes: number;
+  scheduledHours: number;
+  highIntensityEvents: number;
+  longestMeetingBlock: number; // minutes
+  earlyStart?: string; // HH:MM of first commitment
+  lateFinish?: string; // HH:MM of last commitment
+  travelToday: boolean;
+  travelWithin24h: boolean;
+  nextTravel?: { title: string; time: string; tomorrow: boolean; early: boolean };
+  recoveryWindows: number; // gaps of 90+ minutes between commitments
+  openAfternoon: boolean; // nothing scheduled after 1 PM
+  hardestBlockStart?: string; // HH:MM start of the first high-intensity commitment
+  eveningEvent?: { title: string; endTime: string };
+  drivers: { label: string; effect: number }[];
+}
+
+export type CalendarScenarioId = "high_stress" | "light" | "travel";
+
+export interface CalendarScenario {
+  id: CalendarScenarioId;
+  label: string;
+  blurb: string;
+}
+
 export interface Brief {
   date: string;
   score: ScoreResult;
   narrative: string[];
   decisions: Decision[];
   metrics: { label: string; value: string; delta: string; direction: "up" | "down" | "flat" }[];
+  calendar?: CalendarLoad;
+  contextLine?: string;
+  demandSummary?: string;
+  inferences: string[];
 }
 
 export type Outcome = "helped" | "neutral" | "hurt";
@@ -84,6 +150,15 @@ export interface DayRecord {
   workoutDecision?: "approved" | "modified" | "rejected";
   feedback?: Outcome;
   note?: string;
+  /** Contextual demand saved alongside physiology so patterns can be mined later. */
+  calendar?: {
+    scenario: CalendarScenarioId;
+    loadScore: number;
+    loadStatus: LoadStatus;
+    meetingCount: number;
+    scheduledHours: number;
+    travelWithin24h: boolean;
+  };
 }
 
 export interface Profile {

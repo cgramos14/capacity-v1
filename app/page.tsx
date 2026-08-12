@@ -2,9 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { buildBrief } from "@/lib/brief";
+import { SCENARIOS } from "@/lib/calendar/demo";
+import { computeCalendarLoad } from "@/lib/calendar/load";
+import { demoCalendarProvider } from "@/lib/calendar/provider";
 import { demoProvider } from "@/lib/garmin/provider";
 import { store } from "@/lib/storage";
-import type { ActivityType, Brief, CheckIn, DailyPhysiology, Outcome } from "@/lib/types";
+import type {
+  ActivityType,
+  Brief,
+  CalendarScenarioId,
+  CheckIn,
+  DailyPhysiology,
+  Outcome,
+} from "@/lib/types";
 
 const WORKOUTS: { value: ActivityType; label: string }[] = [
   { value: "rest", label: "Rest" },
@@ -27,33 +37,63 @@ export default function TodayPage() {
   const [feedback, setFeedback] = useState<Outcome | undefined>();
   const [note, setNote] = useState("");
   const [decision, setDecision] = useState<"approved" | "modified" | "rejected" | undefined>();
+  const [scenario, setScenario] = useState<CalendarScenarioId>("high_stress");
 
   useEffect(() => {
     demoProvider.getDailyPhysiology(30).then(setHistory);
+    setScenario(store.getScenario());
   }, []);
+
+  function chooseScenario(s: CalendarScenarioId) {
+    setScenario(s);
+    store.saveScenario(s);
+  }
 
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   }, []);
 
-  function generate() {
+  /** Same Garmin history + same check-in; only the calendar scenario varies. */
+  async function makeBrief(s: CalendarScenarioId) {
+    const today = history![history!.length - 1];
+    const events = await demoCalendarProvider.getEvents(s);
+    const load = computeCalendarLoad(events, today.date, nextDay(today.date));
+    const b = buildBrief(history!, checkIn, store.getProfile(), load);
+    store.upsertRecord({
+      date: b.date,
+      physiology: today,
+      checkIn,
+      score: b.score.score,
+      status: b.score.status,
+      primaryRecommendation: b.decisions[0].title,
+      calendar: {
+        scenario: s,
+        loadScore: load.score,
+        loadStatus: load.status,
+        meetingCount: load.meetingCount,
+        scheduledHours: load.scheduledHours,
+        travelWithin24h: load.travelWithin24h,
+      },
+    });
+    return b;
+  }
+
+  async function generate() {
     if (!history) return;
     setGenerating(true);
-    const b = buildBrief(history, checkIn, store.getProfile());
-    const today = history[history.length - 1];
+    const b = await makeBrief(scenario);
     setTimeout(() => {
       setBrief(b);
       setGenerating(false);
-      store.upsertRecord({
-        date: b.date,
-        physiology: today,
-        checkIn,
-        score: b.score.score,
-        status: b.score.status,
-        primaryRecommendation: b.decisions[0].title,
-      });
     }, 450);
+  }
+
+  async function regenerate(s: CalendarScenarioId) {
+    if (!history) return;
+    chooseScenario(s);
+    setDecision(undefined);
+    setBrief(await makeBrief(s));
   }
 
   function recordDecision(d: "approved" | "modified" | "rejected") {
@@ -74,6 +114,8 @@ export default function TodayPage() {
         setCheckIn={setCheckIn}
         onGenerate={generate}
         loading={generating || !history}
+        scenario={scenario}
+        setScenario={chooseScenario}
       />
     );
   }
@@ -92,6 +134,15 @@ export default function TodayPage() {
         <p className="mt-3 text-[12px] tracking-[0.24em] uppercase text-accent">
           {brief.score.status}
         </p>
+        {brief.calendar && (
+          <p className="mt-3 text-[13px] text-muted max-w-xl">
+            Today&apos;s demand: <span className="text-ink">{brief.calendar.status}</span>
+            {brief.contextLine ? ` · ${brief.contextLine}` : ""}
+            {brief.demandSummary && (
+              <span className="block mt-1 text-[12px]">{brief.demandSummary}</span>
+            )}
+          </p>
+        )}
         <p className="mt-6 font-display text-[24px] sm:text-[28px] leading-snug max-w-xl">
           {brief.score.headline}
         </p>
@@ -127,6 +178,24 @@ export default function TodayPage() {
             ))}
           </ul>
         </details>
+        {brief.inferences.length > 0 && (
+          <details className="mt-3 group">
+            <summary className="cursor-pointer text-[12px] text-muted hover:text-ink list-none">
+              What today&apos;s schedule adds →
+            </summary>
+            <ul className="mt-3 space-y-1.5 text-[13px] text-muted max-w-xl">
+              {brief.inferences.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+            {brief.calendar && (
+              <p className="mt-3 text-[12px] text-muted">
+                Calendar load {brief.calendar.score}/100 ·{" "}
+                {brief.calendar.drivers.map((d) => `${d.label} +${d.effect}`).join(" · ")}
+              </p>
+            )}
+          </details>
+        )}
       </section>
 
       <section className="rise">
@@ -176,8 +245,49 @@ export default function TodayPage() {
           </p>
         )}
       </section>
+
+      <section className="rise border-t border-line pt-6">
+        <ScenarioPicker value={scenario} onChange={regenerate} />
+      </section>
     </div>
   );
+}
+
+function ScenarioPicker({
+  value,
+  onChange,
+}: {
+  value: CalendarScenarioId;
+  onChange: (s: CalendarScenarioId) => void;
+}) {
+  const active = SCENARIOS.find((s) => s.id === value);
+  return (
+    <div>
+      <p className="text-[11px] tracking-[0.18em] uppercase text-muted">Demo Calendar Scenario</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {SCENARIOS.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => onChange(s.id)}
+            className={`px-4 py-2 rounded-full border text-[13px] transition-colors ${
+              value === s.id ? "bg-ink text-canvas border-ink" : "border-line bg-surface hover:border-ink"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {active && <p className="mt-3 text-[12px] text-muted">{active.blurb}</p>}
+    </div>
+  );
+}
+
+function nextDay(date: string) {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
 }
 
 function DecisionCard({
@@ -229,8 +339,9 @@ function DecisionCard({
               <p className="mt-4 text-[11px] tracking-[0.14em] uppercase text-muted">
                 Capacity adjustment
               </p>
-              <ul className="mt-2 space-y-1.5 text-[15px] leading-relaxed">
-                <li>Reduce total working sets approximately 25%.</li>
+              <p className="mt-2 text-[16px]">{decision.target}</p>
+              <p className="mt-2 text-[15px] leading-relaxed text-ink/80">{decision.body}</p>
+              <ul className="mt-3 space-y-1.5 text-[15px] leading-relaxed">
                 <li>Keep primary compound lifts.</li>
                 <li>Remove optional conditioning.</li>
                 <li>Avoid adding extra accessory volume.</li>
@@ -269,12 +380,16 @@ function CheckInForm({
   setCheckIn,
   onGenerate,
   loading,
+  scenario,
+  setScenario,
 }: {
   greeting: string;
   checkIn: CheckIn;
   setCheckIn: (c: CheckIn) => void;
   onGenerate: () => void;
   loading: boolean;
+  scenario: CalendarScenarioId;
+  setScenario: (s: CalendarScenarioId) => void;
 }) {
   return (
     <div className="rise max-w-xl">
@@ -329,6 +444,10 @@ function CheckInForm({
         </div>
       </div>
 
+      <div className="mt-10 border-t border-line pt-6">
+        <ScenarioPicker value={scenario} onChange={setScenario} />
+      </div>
+
       <button
         onClick={onGenerate}
         disabled={loading}
@@ -336,7 +455,9 @@ function CheckInForm({
       >
         {loading ? "Reading your data…" : "Generate Today's Brief"}
       </button>
-      <p className="mt-4 text-[12px] text-muted">Using Demo Garmin Data · synthetic 30-day history</p>
+      <p className="mt-4 text-[12px] text-muted">
+        Using Demo Garmin Data · synthetic 30-day history · demo calendar
+      </p>
     </div>
   );
 }

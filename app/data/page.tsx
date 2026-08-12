@@ -1,3 +1,4 @@
+import CalendarStatus from "@/components/CalendarStatus";
 import { demoProvider } from "@/lib/garmin/provider";
 import { computeBaselines } from "@/lib/baselines";
 import { fmtMin } from "@/lib/score";
@@ -48,6 +49,10 @@ export default async function DataPage() {
               </span>
             )}
           </div>
+        </div>
+
+        <div className="mt-4">
+          <CalendarStatus />
         </div>
       </section>
 

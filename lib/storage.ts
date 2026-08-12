@@ -1,7 +1,11 @@
-import type { DayRecord, Profile } from "./types";
+import type { CalendarScenarioId, DayRecord, Profile } from "./types";
 
 /** Thin key/value store. Swap this module for Supabase later; the API stays the same. */
-const KEYS = { records: "capacity.records", profile: "capacity.profile" };
+const KEYS = {
+  records: "capacity.records",
+  profile: "capacity.profile",
+  scenario: "capacity.calendarScenario",
+};
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -32,6 +36,10 @@ export const DEFAULT_PROFILE: Profile = {
 export const store = {
   getProfile: () => read<Profile>(KEYS.profile, DEFAULT_PROFILE),
   saveProfile: (p: Profile) => write(KEYS.profile, p),
+
+  /** Which demo calendar scenario is active. Demo Mode only. */
+  getScenario: () => read<CalendarScenarioId>(KEYS.scenario, "high_stress"),
+  saveScenario: (s: CalendarScenarioId) => write(KEYS.scenario, s),
 
   getRecords: () => read<DayRecord[]>(KEYS.records, []),
   getRecord: (date: string) => store.getRecords().find((r) => r.date === date),
