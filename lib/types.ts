@@ -7,16 +7,20 @@ export interface Activity {
   load: number; // relative training load 0-100
 }
 
-/** Normalized internal schema. Demo + live Garmin both map into this. */
+/**
+ * Normalized internal schema. Demo + live Garmin both map into this.
+ * `null` means the source had no value for that day — it is never a zero,
+ * an estimate, or a value carried over from another day.
+ */
 export interface DailyPhysiology {
   date: string; // YYYY-MM-DD
-  sleepDuration: number; // minutes
-  sleepScore: number; // 0-100
-  hrv: number; // ms
-  restingHeartRate: number; // bpm
-  stress: number; // 0-100 (Garmin all-day stress avg)
-  bodyBattery: number; // 0-100 (morning value)
-  steps: number;
+  sleepDuration: number | null; // minutes
+  sleepScore: number | null; // 0-100
+  hrv: number | null; // ms
+  restingHeartRate: number | null; // bpm
+  stress: number | null; // 0-100 (Garmin all-day stress avg)
+  bodyBattery: number | null; // 0-100 (morning value)
+  steps: number | null;
   activities: Activity[];
 }
 
@@ -27,20 +31,21 @@ export interface CheckIn {
   workout: ActivityType;
 }
 
+/** `null` on any field means the history had no data to compute it from. */
 export interface Baselines {
-  sleep7: number;
-  sleep28: number;
-  hrv7: number;
-  hrv28: number;
-  rhr7: number;
-  rhr28: number;
-  stress28: number;
-  sleepDelta: number; // today vs 28d, minutes
-  hrvDeltaPct: number;
-  rhrDelta: number;
-  hrvTrend3: number; // pct change of 3d avg vs 28d
-  hrvTrend7: number;
-  stressTrend3: number;
+  sleep7: number | null;
+  sleep28: number | null;
+  hrv7: number | null;
+  hrv28: number | null;
+  rhr7: number | null;
+  rhr28: number | null;
+  stress28: number | null;
+  sleepDelta: number | null; // today vs 28d, minutes
+  hrvDeltaPct: number | null;
+  rhrDelta: number | null;
+  hrvTrend3: number | null; // pct change of 3d avg vs 28d
+  hrvTrend7: number | null;
+  stressTrend3: number | null;
   decliningDays: number; // consecutive days of declining recovery
   trainingLoad7: number;
 }
@@ -52,6 +57,8 @@ export interface ScoreResult {
   status: Status;
   headline: string;
   drivers: { label: string; effect: number; note: string }[];
+  /** Drivers that could not be evaluated because the data was not available. */
+  dataGaps: string[];
 }
 
 export interface Decision {

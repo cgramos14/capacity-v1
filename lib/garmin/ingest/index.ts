@@ -73,25 +73,30 @@ export function missingMetrics(day: GarminDay): MetricKey[] {
 }
 
 /**
- * Bridge into Capacity's model. Returns null when any core metric is absent,
- * so partially covered days are skipped rather than silently invented.
+ * Bridge into Capacity's model. Metrics Garmin did not record stay `null` and
+ * flow through as gaps — baselines skip them, the score reports them as
+ * `dataGaps`, and the brief leaves them unsaid.
  *
  * `activities` is empty: the daily-summary exports carry no per-workout records.
  * Activity ingestion is a separate export/endpoint and is not synthesized here.
  */
-export function toDailyPhysiology(day: GarminDay): DailyPhysiology | null {
-  if (missingMetrics(day).length > 0) return null;
+export function toDailyPhysiology(day: GarminDay): DailyPhysiology {
   return {
     date: day.date,
-    sleepDuration: day.sleepDuration as number,
-    sleepScore: day.sleepScore as number,
-    hrv: day.hrv as number,
-    restingHeartRate: day.restingHeartRate as number,
-    stress: day.stress as number,
-    bodyBattery: day.bodyBattery as number,
-    steps: day.steps as number,
+    sleepDuration: day.sleepDuration,
+    sleepScore: day.sleepScore,
+    hrv: day.hrv,
+    restingHeartRate: day.restingHeartRate,
+    stress: day.stress,
+    bodyBattery: day.bodyBattery,
+    steps: day.steps,
     activities: [],
   };
+}
+
+/** True when a day carries at least one measured metric. */
+export function hasAnyMetric(day: GarminDay): boolean {
+  return missingMetrics(day).length < CORE_METRICS.length;
 }
 
 /**
@@ -108,11 +113,14 @@ export function toPartialPhysiology(day: GarminDay): Partial<DailyPhysiology> & 
   return out;
 }
 
-/** All fully covered days, oldest first. */
+/**
+ * Every day that carries at least one measured metric, oldest first. Days where
+ * the export recorded nothing at all are dropped — an empty day is noise, not data.
+ */
 export function toDailyPhysiologyHistory(days: GarminDay[]): DailyPhysiology[] {
   return days
+    .filter(hasAnyMetric)
     .map(toDailyPhysiology)
-    .filter((d): d is DailyPhysiology => d !== null)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 

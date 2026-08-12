@@ -47,9 +47,10 @@ export async function POST(request: Request) {
       ? { from: result.days[0].date, to: result.days[result.days.length - 1].date }
       : null,
     daysIngested: result.days.length,
-    /** Days complete enough to enter Capacity's model as-is. */
+    /** Days carrying at least one measured metric — what Capacity will use. */
     usableDays: history.length,
-    incompleteDays: result.days
+    /** Per-day gaps, so partial coverage is visible rather than implied. */
+    partialDays: result.days
       .filter((d) => missingMetrics(d).length > 0)
       .map((d) => ({ date: d.date, missing: missingMetrics(d) })),
     days: result.days,

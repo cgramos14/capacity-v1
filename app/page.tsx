@@ -126,6 +126,11 @@ export default function TodayPage() {
               </li>
             ))}
           </ul>
+          {brief.score.dataGaps.length > 0 && (
+            <p className="mt-3 text-[13px] text-muted">
+              Not measured today, so not scored: {brief.score.dataGaps.join(", ")}.
+            </p>
+          )}
         </details>
       </section>
 

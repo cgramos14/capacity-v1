@@ -2,6 +2,9 @@ import type { Baselines, CheckIn, DailyPhysiology, ScoreResult, Status } from ".
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+/** Drivers computed from Garmin physiology; the rest come from the check-in. */
+const PHYSIOLOGY_DRIVERS = 7;
+
 /**
  * Provisional Capacity Score (0-100). Not clinically validated.
  * Longitudinal trends are weighted more heavily than single-day abnormalities:
@@ -14,30 +17,65 @@ export function computeScore(
   checkIn: CheckIn
 ): ScoreResult {
   const parts: { label: string; effect: number; note: string }[] = [];
+  const dataGaps: string[] = [];
+
   const add = (label: string, effect: number, note: string) => {
     if (effect >= 0.5) parts.push({ label, effect: -Math.round(effect * 10) / 10, note });
   };
 
-  add("Sleep vs baseline", clamp(-b.sleepDelta / 26, 0, 6),
-    `${fmtMin(Math.abs(b.sleepDelta))} ${b.sleepDelta < 0 ? "below" : "above"} your 28-day baseline`);
+  /**
+   * A driver whose inputs are missing is recorded as a gap, not scored as zero:
+   * the score reflects only what was actually measured, and `dataGaps` says what
+   * it could not see.
+   */
+  const addIf = (
+    label: string,
+    inputs: (number | null)[],
+    compute: (values: number[]) => { effect: number; note: string }
+  ) => {
+    const values = inputs.filter((v): v is number => v !== null);
+    if (values.length < inputs.length) {
+      dataGaps.push(label);
+      return;
+    }
+    const { effect, note } = compute(values);
+    add(label, effect, note);
+  };
 
-  add("HRV today", clamp(-b.hrvDeltaPct / 4, 0, 6),
-    `${today.hrv} ms vs a ${Math.round(b.hrv28)} ms baseline`);
+  addIf("Sleep vs baseline", [b.sleepDelta], ([sleepDelta]) => ({
+    effect: clamp(-sleepDelta / 26, 0, 6),
+    note: `${fmtMin(Math.abs(sleepDelta))} ${sleepDelta < 0 ? "below" : "above"} your 28-day baseline`,
+  }));
 
-  add("HRV 3-day trend", clamp(-b.hrvTrend3 / 1.9, 0, 12),
-    `3-day average ${Math.abs(Math.round(b.hrvTrend3))}% ${b.hrvTrend3 < 0 ? "below" : "above"} baseline`);
+  addIf("HRV today", [b.hrvDeltaPct, today.hrv, b.hrv28], ([deltaPct, hrv, hrv28]) => ({
+    effect: clamp(-deltaPct / 4, 0, 6),
+    note: `${hrv} ms vs a ${Math.round(hrv28)} ms baseline`,
+  }));
 
-  add("HRV 7-day trend", clamp(-b.hrvTrend7 / 2.5, 0, 6),
-    `7-day average ${Math.abs(Math.round(b.hrvTrend7))}% ${b.hrvTrend7 < 0 ? "below" : "above"} baseline`);
+  addIf("HRV 3-day trend", [b.hrvTrend3], ([trend]) => ({
+    effect: clamp(-trend / 1.9, 0, 12),
+    note: `3-day average ${Math.abs(Math.round(trend))}% ${trend < 0 ? "below" : "above"} baseline`,
+  }));
 
-  add("Resting heart rate", clamp(b.rhrDelta * 1.0, 0, 6),
-    `${today.restingHeartRate} bpm, ${Math.abs(Math.round(b.rhrDelta))} bpm ${b.rhrDelta > 0 ? "above" : "below"} baseline`);
+  addIf("HRV 7-day trend", [b.hrvTrend7], ([trend]) => ({
+    effect: clamp(-trend / 2.5, 0, 6),
+    note: `7-day average ${Math.abs(Math.round(trend))}% ${trend < 0 ? "below" : "above"} baseline`,
+  }));
 
-  add("Stress load", clamp((today.stress - b.stress28) * 0.22, 0, 5),
-    `all-day stress ${today.stress} vs ${Math.round(b.stress28)} typical`);
+  addIf("Resting heart rate", [b.rhrDelta, today.restingHeartRate], ([rhrDelta, rhr]) => ({
+    effect: clamp(rhrDelta * 1.0, 0, 6),
+    note: `${rhr} bpm, ${Math.abs(Math.round(rhrDelta))} bpm ${rhrDelta > 0 ? "above" : "below"} baseline`,
+  }));
 
-  add("Body Battery", clamp((70 - today.bodyBattery) / 6, 0, 5),
-    `started the day at ${today.bodyBattery}`);
+  addIf("Stress load", [today.stress, b.stress28], ([stress, stress28]) => ({
+    effect: clamp((stress - stress28) * 0.22, 0, 5),
+    note: `all-day stress ${stress} vs ${Math.round(stress28)} typical`,
+  }));
+
+  addIf("Body Battery", [today.bodyBattery], ([battery]) => ({
+    effect: clamp((70 - battery) / 6, 0, 5),
+    note: `started the day at ${battery}`,
+  }));
 
   add("Consecutive decline", clamp((b.decliningDays - 1) * 2.5, 0, 8),
     `${b.decliningDays} straight days of recovery below baseline`);
@@ -53,8 +91,16 @@ export function computeScore(
   const score = Math.round(clamp(100 - penalty, 0, 100));
   const status = toStatus(score);
 
+  // The score only penalizes what was measured, so a thin day can score high.
+  // The headline says so rather than letting the number imply full confidence,
+  // and a day with no physiology at all does not get to claim a status.
+  const noPhysiology = dataGaps.length === PHYSIOLOGY_DRIVERS;
+  const coverageNote = dataGaps.length > 0 ? " Some markers were not measured today." : "";
+
   const headline =
-    status === "DEPLETED"
+    noPhysiology
+      ? "Garmin recorded no physiology for today — this reflects your check-in only."
+      : status === "DEPLETED"
       ? "Your body is under meaningful strain today."
       : status === "CONSTRAINED"
       ? "Your body is carrying more load than usual today."
@@ -63,7 +109,13 @@ export function computeScore(
       : "You have real capacity available today.";
 
   parts.sort((a, b2) => a.effect - b2.effect);
-  return { score, status, headline, drivers: parts.slice(0, 4) };
+  return {
+    score,
+    status,
+    headline: noPhysiology ? headline : headline + coverageNote,
+    drivers: parts.slice(0, 4),
+    dataGaps,
+  };
 }
 
 export function toStatus(score: number): Status {

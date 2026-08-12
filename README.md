@@ -35,10 +35,10 @@ anything downstream. It reads the export files as they ship:
 
 Rules this layer holds to:
 
-- **Nothing is invented.** A metric absent from the export stays `null`; it is never
-  zero-filled, interpolated, or carried forward. `toDailyPhysiology()` returns `null`
-  for a day missing any core metric, and `toPartialPhysiology()` exposes only what
-  Garmin actually recorded.
+- **Nothing is invented.** A metric absent from the export stays `null` all the way
+  through `DailyPhysiology`; it is never zero-filled, interpolated, or carried forward.
+  Partial days are used for what they do contain — only a day with no measured metric
+  at all is dropped.
 - **Provenance is kept.** Every value records the file and field it came from
   (`day.sources`), and `IngestResult.coverage` reports per-metric day counts.
 - **Gaps are reported, not hidden.** `IngestResult.warnings` flags off-wrist days,
@@ -46,6 +46,22 @@ Rules this layer holds to:
   is a 7-day aggregate and is never used as a day's HRV.
 - Daily-summary exports carry no per-workout records, so `activities` is empty until
   activity ingestion exists.
+
+### How gaps flow through the app
+
+`DailyPhysiology` and `Baselines` fields are `number | null`, and every consumer
+treats `null` as "not measured" rather than zero:
+
+- **Baselines** average only the days that carry the metric; a window with no values
+  is `null`, and deltas against a null baseline are `null`.
+- **The decline streak** needs corroboration — two measured signals pointing down,
+  with HRV never contradicting them. One signal alone (resting HR a beat above its
+  own mean) does not make a declining day.
+- **The score** skips drivers whose inputs are missing and lists them in
+  `ScoreResult.dataGaps`; the headline notes that some markers were not measured, and
+  a day with no physiology at all does not claim a status.
+- **The brief** writes narrative and metric tiles only from metrics that exist, and
+  says outright which ones were not measured.
 
 Ingest an export via `POST /api/garmin/import` — multipart `files`, or
 `{ "files": [{ "name": "UDSFile_....json", "payload": <parsed JSON> }] }`. It returns

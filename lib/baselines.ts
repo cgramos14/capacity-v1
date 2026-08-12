@@ -1,8 +1,20 @@
 import type { Baselines, DailyPhysiology } from "./types";
 
-const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-const tail = (xs: DailyPhysiology[], n: number, f: (d: DailyPhysiology) => number) =>
+/**
+ * Averages ignore days where the metric is missing. A window with no values at
+ * all returns null rather than 0, so a gap never reads as a real measurement.
+ */
+const avg = (xs: (number | null)[]) => {
+  const present = xs.filter((x): x is number => x !== null);
+  return present.length ? present.reduce((a, b) => a + b, 0) / present.length : null;
+};
+
+const tail = (xs: DailyPhysiology[], n: number, f: (d: DailyPhysiology) => number | null) =>
   avg(xs.slice(-n).map(f));
+
+const delta = (a: number | null, b: number | null) => (a === null || b === null ? null : a - b);
+const pctDelta = (a: number | null, b: number | null) =>
+  a === null || b === null || b === 0 ? null : ((a - b) / b) * 100;
 
 /** Personal baselines + trends. History is oldest-first, last entry is today. */
 export function computeBaselines(history: DailyPhysiology[]): Baselines {
@@ -21,13 +33,26 @@ export function computeBaselines(history: DailyPhysiology[]): Baselines {
   const hrvLast7 = tail(history, 7, (d) => d.hrv);
   const stress3 = tail(history, 3, (d) => d.stress);
 
-  // Consecutive days (most recent first) where recovery is below personal baseline.
+  // Consecutive days (most recent first) where recovery is below personal
+  // baseline. A decline has to be corroborated: at least two measured signals
+  // pointing down, and HRV never contradicting them. One signal on its own —
+  // resting HR drifting a beat above its own mean, say — is not a decline, so a
+  // day with fewer than two measured signals ends the streak instead of
+  // inflating it.
   let decliningDays = 0;
   for (let i = history.length - 1; i >= 0; i--) {
     const d = history[i];
-    const below = d.hrv < hrv28 && (d.restingHeartRate > rhr28 || d.sleepDuration < sleep28);
-    if (below) decliningDays++;
-    else break;
+    const hrvBelow = compare(d.hrv, hrv28, "below");
+    const signals = [
+      hrvBelow,
+      compare(d.restingHeartRate, rhr28, "above"),
+      compare(d.sleepDuration, sleep28, "below"),
+    ];
+
+    const measured = signals.filter((s): s is boolean => s !== null);
+    const down = measured.filter(Boolean).length;
+    if (measured.length < 2 || down < 2 || hrvBelow === false) break;
+    decliningDays++;
   }
 
   const trainingLoad7 = history
@@ -42,13 +67,18 @@ export function computeBaselines(history: DailyPhysiology[]): Baselines {
     rhr7,
     rhr28,
     stress28,
-    sleepDelta: today.sleepDuration - sleep28,
-    hrvDeltaPct: ((today.hrv - hrv28) / hrv28) * 100,
-    rhrDelta: today.restingHeartRate - rhr28,
-    hrvTrend3: ((hrv3 - hrv28) / hrv28) * 100,
-    hrvTrend7: ((hrvLast7 - hrv28) / hrv28) * 100,
-    stressTrend3: stress3 - stress28,
+    sleepDelta: delta(today?.sleepDuration ?? null, sleep28),
+    hrvDeltaPct: pctDelta(today?.hrv ?? null, hrv28),
+    rhrDelta: delta(today?.restingHeartRate ?? null, rhr28),
+    hrvTrend3: pctDelta(hrv3, hrv28),
+    hrvTrend7: pctDelta(hrvLast7, hrv28),
+    stressTrend3: delta(stress3, stress28),
     decliningDays,
     trainingLoad7,
   };
+}
+
+function compare(value: number | null, baseline: number | null, dir: "above" | "below") {
+  if (value === null || baseline === null) return null;
+  return dir === "above" ? value > baseline : value < baseline;
 }

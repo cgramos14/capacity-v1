@@ -2,6 +2,11 @@ import { demoProvider } from "@/lib/garmin/provider";
 import { computeBaselines } from "@/lib/baselines";
 import { fmtMin } from "@/lib/score";
 
+/** Renders a missing reading as a dash — never as a zero. */
+const val = (v: number | null, unit = "") => (v === null ? "—" : `${Math.round(v)}${unit}`);
+const mins = (v: number | null) => (v === null ? "—" : fmtMin(v));
+const pct = (v: number | null) => (v === null ? "—" : `${v > 0 ? "+" : ""}${Math.round(v)}%`);
+
 export const dynamic = "force-dynamic";
 
 export default async function DataPage() {
@@ -55,14 +60,14 @@ export default async function DataPage() {
         <h2 className="text-[11px] tracking-[0.24em] uppercase text-muted">Personal baselines</h2>
         <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-6">
           {[
-            ["Sleep 7d", fmtMin(b.sleep7)],
-            ["Sleep 28d", fmtMin(b.sleep28)],
-            ["HRV 7d", `${Math.round(b.hrv7)} ms`],
-            ["HRV 28d", `${Math.round(b.hrv28)} ms`],
-            ["Resting HR 7d", `${Math.round(b.rhr7)} bpm`],
-            ["Resting HR 28d", `${Math.round(b.rhr28)} bpm`],
-            ["HRV 3-day trend", `${b.hrvTrend3 > 0 ? "+" : ""}${Math.round(b.hrvTrend3)}%`],
-            ["HRV 7-day trend", `${b.hrvTrend7 > 0 ? "+" : ""}${Math.round(b.hrvTrend7)}%`],
+            ["Sleep 7d", mins(b.sleep7)],
+            ["Sleep 28d", mins(b.sleep28)],
+            ["HRV 7d", val(b.hrv7, " ms")],
+            ["HRV 28d", val(b.hrv28, " ms")],
+            ["Resting HR 7d", val(b.rhr7, " bpm")],
+            ["Resting HR 28d", val(b.rhr28, " bpm")],
+            ["HRV 3-day trend", pct(b.hrvTrend3)],
+            ["HRV 7-day trend", pct(b.hrvTrend7)],
           ].map(([label, value]) => (
             <div key={label}>
               <p className="text-[11px] tracking-[0.14em] uppercase text-muted">{label}</p>
@@ -89,13 +94,13 @@ export default async function DataPage() {
               {recent.map((d) => (
                 <tr key={d.date} className="border-t border-line">
                   <td className="py-3 pr-4 whitespace-nowrap">{d.date.slice(5)}</td>
-                  <td className="py-3 pr-4 whitespace-nowrap">{fmtMin(d.sleepDuration)}</td>
-                  <td className="py-3 pr-4">{d.sleepScore}</td>
-                  <td className="py-3 pr-4">{d.hrv}</td>
-                  <td className="py-3 pr-4">{d.restingHeartRate}</td>
-                  <td className="py-3 pr-4">{d.stress}</td>
-                  <td className="py-3 pr-4">{d.bodyBattery}</td>
-                  <td className="py-3 pr-4">{d.steps.toLocaleString()}</td>
+                  <td className="py-3 pr-4 whitespace-nowrap">{mins(d.sleepDuration)}</td>
+                  <td className="py-3 pr-4">{val(d.sleepScore)}</td>
+                  <td className="py-3 pr-4">{val(d.hrv)}</td>
+                  <td className="py-3 pr-4">{val(d.restingHeartRate)}</td>
+                  <td className="py-3 pr-4">{val(d.stress)}</td>
+                  <td className="py-3 pr-4">{val(d.bodyBattery)}</td>
+                  <td className="py-3 pr-4">{d.steps === null ? "—" : d.steps.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
