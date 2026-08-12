@@ -1,13 +1,11 @@
-# capacity-v1
+# Capacity
 
-Fresh start. Replace this with the real project.
-
-## Deploy
-
-Pushing to `main` auto-deploys to Vercel.
+Physiological intelligence and decision layer. Next.js + TypeScript + Tailwind.
 
 ```bash
-git add .
-git commit -m "your message"
-git push
+npm install
+npm run dev
 ```
+
+Demo Garmin data is synthetic and generated locally. Live Garmin requires official
+Garmin Connect Developer Program credentials (`.env.local`, see `.env.example`).
